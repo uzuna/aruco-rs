@@ -1,5 +1,4 @@
-use image::{ImageBuffer, Luma};
-use imageproc::{contours::Contour, point};
+use imageproc::contours::Contour;
 use nalgebra::Normed;
 
 #[derive(Debug, Default)]
@@ -45,19 +44,19 @@ impl Candidate {
 // 閉じた線形
 //
 // 輪郭検出の結果なので何らかの閉じた線形で、その線分を示す点で構成される
-// n個野天がある場合n+1は0番目の点と同じになる
-struct ClosedShape(Vec<nalgebra::Point2<f32>>);
+// n個の点がある場合n+1は0番目の点と同じになる
+// struct ClosedShape(Vec<nalgebra::Point2<f32>>);
 
-impl ClosedShape {
-    fn from_contour(c: &Contour<u32>) -> Self {
-        Self(
-            c.points
-                .iter()
-                .map(|p| nalgebra::Point2::new(p.x as f32, p.y as f32))
-                .collect(),
-        )
-    }
-}
+// impl ClosedShape {
+//     fn from_contour(c: &Contour<u32>) -> Self {
+//         Self(
+//             c.points
+//                 .iter()
+//                 .map(|p| nalgebra::Point2::new(p.x as f32, p.y as f32))
+//                 .collect(),
+//         )
+//     }
+// }
 
 // pointsの中の二点の距離
 #[derive(Debug)]
@@ -69,14 +68,6 @@ struct SubPath {
 impl SubPath {
     fn new(left: usize, right: usize) -> Self {
         Self { left, right }
-    }
-    // 始点と終点を除いた点のイテレータを返す
-    fn iter(&self, len: usize) -> SubPathIter {
-        SubPathIter {
-            len,
-            end: self.right,
-            current: self.left + 1,
-        }
     }
     fn is_next(&self, len: usize) -> bool {
         let index = self.left + 1 % len;
@@ -92,15 +83,19 @@ impl SubPath {
         let mut max_index = 0;
         let start = points[self.left];
         let end = points[self.right];
-
+        let base = end - start;
+        #[allow(clippy::needless_range_loop)]
         for i in self.left + 1..self.right {
-            let dist = point_line_distance(&points[i], &start, &end);
+            let target = points[i] - start;
+            // perpendicular product
+            let dist = base.perp(&target).abs();
             if dist > max_dist {
                 max_dist = dist;
                 max_index = i;
             }
         }
-        if max_dist > epsilon.powi(2) * (end-start).norm() {
+        // 垂直積で距離を比較
+        if max_dist > epsilon.powi(2) * (end - start).norm_squared() {
             Some([
                 Self::new(self.left, max_index),
                 Self::new(max_index, self.right),
@@ -111,93 +106,51 @@ impl SubPath {
     }
 }
 
-struct SubPathIter {
-    len: usize,
-    end: usize,
-    current: usize,
-}
-
-impl Iterator for SubPathIter {
-    type Item = usize;
-    fn next(&mut self) -> Option<Self::Item> {
-        let ret = self.current;
-        self.current = (self.current + 1) % self.len;
-        if self.current == self.end {
-            None
-        } else {
-            Some(ret)
-        }
-    }
-}
-
-// 直線から点までの距離の・ようなものを計算する
-//
-// ここでは直線上の左側と右側の面積の違いを直線からの距離とする。
-// https://en.wikipedia.org/wiki/Distance_from_a_point_to_a_line
-// TODO 距離のようなものの数学的根拠を調べる
-fn point_line_distance(
-    p: &nalgebra::Point2<f32>,
-    start: &nalgebra::Point2<f32>,
-    end: &nalgebra::Point2<f32>,
-) -> f32 {
-    let v = end - start;
-    let w = p - start;
-    perpendicular_dist(v, w)
-}
-
-#[inline]
-fn perpendicular_dist(
-    base: nalgebra::Vector2<f32>,
-    target: nalgebra::Vector2<f32>,
-) -> f32 {
-    (target.y * base.x - target.x * base.y).abs()
-}
-
-
 // 輪郭近似
-fn approx_poly_dp(c: &Contour<u32>, epsilon: f32) -> Poly {
-    let epsilon = epsilon.powi(2);
+fn approx_poly_dp(_c: &Contour<u32>, _epsilon: f32) -> Poly {
+    todo!();
+    // let epsilon = epsilon.powi(2);
 
-    let points = ClosedShape::from_contour(c);
-    let start_pt = Candidate::from_points(&points.0, 0);
-    // start_ptから最も遠い点を探す
-    let (max_dist, far_pt) = {
-        let mut max_dist = 0.0;
-        let mut far_pt = start_pt;
-        for (i, p) in points.0.iter().enumerate() {
-            let dist = nalgebra::distance_squared(&start_pt.point, p);
-            if dist > max_dist {
-                max_dist = dist;
-                far_pt = Candidate::from_points(&points.0, i);
-            }
-        }
-        (max_dist, far_pt)
-    };
-    if max_dist < epsilon {
-        return Poly {
-            points: vec![start_pt.point],
-        };
-    }
+    // let points = ClosedShape::from_contour(c);
+    // let start_pt = Candidate::from_points(&points.0, 0);
+    // // start_ptから最も遠い点を探す
+    // let (max_dist, far_pt) = {
+    //     let mut max_dist = 0.0;
+    //     let mut far_pt = start_pt;
+    //     for (i, p) in points.0.iter().enumerate() {
+    //         let dist = nalgebra::distance_squared(&start_pt.point, p);
+    //         if dist > max_dist {
+    //             max_dist = dist;
+    //             far_pt = Candidate::from_points(&points.0, i);
+    //         }
+    //     }
+    //     (max_dist, far_pt)
+    // };
+    // if max_dist < epsilon {
+    //     return Poly {
+    //         points: vec![start_pt.point],
+    //     };
+    // }
 
-    // 2点のパスの間を指定の誤差の誤差の点を省略する形で点数を削減
-    // 始点と終点の直線状から最も遠い点を探し、誤差範囲外ならパスを分割する
-    let mut stack = vec![
-        SubPath::new(start_pt.index, far_pt.index),
-        SubPath::new(far_pt.index, start_pt.index),
-    ];
-    let mut poly = Poly::default();
+    // // 2点のパスの間を指定の誤差の誤差の点を省略する形で点数を削減
+    // // 始点と終点の直線状から最も遠い点を探し、誤差範囲外ならパスを分割する
+    // let mut stack = vec![
+    //     SubPath::new(start_pt.index, far_pt.index),
+    //     SubPath::new(far_pt.index, start_pt.index),
+    // ];
+    // let mut poly = Poly::default();
 
-    while !stack.is_empty() {
-        let path = stack.pop().unwrap();
-        if let Some([left, right]) = path.line_or_split(&points.0, epsilon) {
-            stack.push(left);
-            stack.push(right);
-        } else {
-            poly.points.push(points.0[path.left]);
-            poly.points.push(points.0[path.right]);
-        }
-    }
-    poly
+    // while let Some(path) = stack.pop() {
+
+    //     if let Some([left, right]) = path.line_or_split(&points.0, epsilon) {
+    //         stack.push(left);
+    //         stack.push(right);
+    //     } else {
+    //         poly.points.push(points.0[path.left]);
+    //         poly.points.push(points.0[path.right]);
+    //     }
+    // }
+    // poly
 }
 
 // 凸包と仮定して、最も遠い点の組み合わせを探す
@@ -224,6 +177,7 @@ fn find_convexity_far_point(points: &[nalgebra::Point2<f32>]) -> SubPath {
     }
 }
 
+/// 線形の長さを計算する
 fn line_length(points: &[nalgebra::Point2<f32>]) -> f32 {
     let mut length = 0.0;
     for i in 0..points.len() {
@@ -233,15 +187,15 @@ fn line_length(points: &[nalgebra::Point2<f32>]) -> f32 {
     length
 }
 
-fn approx_line(points: &[nalgebra::Point2<f32>], epsilon: f32) -> Poly {
+/// 開いた線形を近似する
+pub fn approx_line(points: &[nalgebra::Point2<f32>], epsilon: f32) -> Poly {
     let far = find_convexity_far_point(points);
     let mut stack = vec![far];
     let mut poly = Poly::default();
 
-    let path = stack.get(0).unwrap();
+    let path = stack.first().unwrap();
     poly.points.push(points[path.left]);
-    while !stack.is_empty() {
-        let path = stack.pop().unwrap();
+    while let Some(path) = stack.pop() {
         if let Some([left, right]) = path.line_or_split(points, epsilon) {
             stack.push(right);
             stack.push(left);
@@ -311,27 +265,29 @@ mod tests {
             },
             TestCase {
                 point: nalgebra::Point2::new(1.0, 0.0),
-                dist:2.0,
+                dist: 2.0,
             },
             TestCase {
                 point: nalgebra::Point2::new(0.0, 1.0),
-                dist:2.0,
+                dist: 2.0,
             },
             TestCase {
                 point: nalgebra::Point2::new(2.0, 1.0),
-                dist:2.0,
+                dist: 2.0,
             },
             TestCase {
                 point: nalgebra::Point2::new(1.0, 2.0),
-                dist:2.0,
+                dist: 2.0,
             },
             TestCase {
                 point: nalgebra::Point2::new(0.0, 2.0),
                 dist: 4.0,
             },
         ];
+        let base = end - start;
         for t in testdata {
-            let dist = super::point_line_distance(&t.point, &start, &end);
+            let v = t.point - start;
+            let dist = base.perp(&v).abs();
             assert_eq!(dist, t.dist);
         }
         let start = nalgebra::Point2::new(1.0, 0.0);
@@ -350,8 +306,10 @@ mod tests {
                 dist: 2.0,
             },
         ];
+        let base = end - start;
         for t in testdata {
-            let dist = super::point_line_distance(&t.point, &start, &end);
+            let v = t.point - start;
+            let dist = base.perp(&v).abs();
             assert_eq!(dist, t.dist, "{:?}", t);
         }
     }
@@ -379,9 +337,9 @@ mod tests {
         assert_eq!(poly.points[2], points[3]);
         assert_eq!(poly.points[3], points[4]);
 
-        // 2点の間を一定の誤差で結ぶ直線で近似する ep = 1.5なので
-        // 2点間の距離の1.0倍以内の点は省略される
-        let poly = super::approx_line(&points, 1.0);
+        // 垂直線が線分の0.5倍の距離にある場合は分割されない
+        // ここでは全ての点が垂直線の0.5倍以内にあるため2点
+        let poly = super::approx_line(&points, 0.5);
         assert_eq!(poly.points.len(), 2);
     }
 }
